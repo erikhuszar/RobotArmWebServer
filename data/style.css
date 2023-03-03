@@ -1,0 +1,61 @@
+body {
+	background-color:#696969;
+	font-family: Arial;
+	text-align: center;
+	margin: 0px auto;
+	padding-top: 5px;
+}
+
+.button {
+	width: 150px;
+	height: 150px;
+	padding: 10px 10px;
+	/*font-size: 24px;*/
+	text-align: center;
+	outline: none;
+	/*color: #fff;*/
+	/*background-color: #2f4468;*/
+	background-repeat: no-repeat;
+	background-position: center;
+	border: none;
+	border-radius: 5px;
+	box-shadow: 0 6px #999;
+	cursor: pointer;
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	-khtml-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+	-webkit-tap-highlight-color: rgba( 0, 0, 0, 0 );
+}  
+
+.button:hover {
+	background-color: #1f2e45;
+}
+.button:active {
+	background-color: #1f2e45;
+	box-shadow: 0 4px #666;
+	transform: translateY( 2px );
+}
+
+
+
+
+
+h3
+{
+	margin-top: 30px;
+}
+
+input
+{
+	margin-top: 0px;
+	margin-bottom: 30px;
+}
+
+textarea
+{
+	margin-top: 30px;
+	margin-bottom: 0px;
+}

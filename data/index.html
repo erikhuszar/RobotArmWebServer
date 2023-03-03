@@ -1,0 +1,151 @@
+<!DOCTYPE HTML><html>
+	<head>
+		<meta charset="utf-8" />
+
+		<title>Robotic arm</title>
+
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+		<link rel="icon" type="image/png" href="favicon.png" />
+		<link rel="stylesheet" type="text/css" href="style.css" media="all" />
+	</head>
+
+	<body>
+		<!--
+		<h1 id="message">---</h1>
+		
+		<button class="button" style="background-color: #6093d7; background-image: url( 'one.png' );" id="button_one"></button>
+		<button class="button" style="background-color: #8e58c1; background-image: url( 'two.png' );" id="button_two"></button>
+		<br /><br />
+		<button class="button" style="background-color: #79c569; background-image: url( 'three.png' );" id="button_three"></button>
+		<button class="button" style="background-color: #f0d368; background-image: url( 'four.png' );" id="button_four"></button>
+		<br /><br />
+		<button class="button" style="background-color: #ef946a; background-image: url( 'five.png' );" id="button_five"></button>
+		<button class="button" style="background-color: #d5668f; background-image: url( 'six.png' );" id="button_six"></button>
+		-->
+
+
+
+		<br>
+		<button type="button" onclick="calibrate_button();">Calibrate</button>
+
+
+
+		<!--Entering PID values for position-->
+		<!--
+		<h3>PID constants for position. Enter only numbers with a maximum of two decimal places.</h3>
+
+		<form action="/PID_pos" target="hiddenFrame" class="first_row_buttons">
+			Proportional constant: <input name="proportional_pos" type="text" value ="1" id="proportional_input_pos"/>
+			<input type="submit" value="Submit" required>
+		</form>
+
+		<form action="/PID_pos" target="hiddenFrame">
+			Integrator constant: <input name="integrator_pos" type="text" value="1" id="integrator_input_pos"/>
+			<input type="submit" value="Submit" required>
+		</form>
+
+		<form action="/PID_pos" target="hiddenFrame">
+			Derivative constant: <input name="derivative_pos" type="text" value="1" id="derivative_input_pos"/>
+			<input type="submit" value="Submit" required>
+		</form>
+		-->
+
+
+
+		<!--Entering PID values for velocity-->
+		<h3>PID constants for velocity. Enter only numbers with a maximum of two decimal places.</h3>
+
+		<form action="/PID_vel" target="hiddenFrame" class="first_row_buttons">
+			Proportional constant: <input name="proportional_vel" type="text" value ="5.0" id="proportional_input_vel"/>
+			<input type="submit" value="Submit" required>
+		</form>
+
+		<form action="/PID_vel" target="hiddenFrame">
+			Integrator constant: <input name="integrator_vel" type="text" value="0.5" id="integrator_input_vel"/>
+			<input type="submit" value="Submit" required>
+		</form>
+
+		<form action="/PID_vel" target="hiddenFrame">
+			Derivative constant: <input name="derivative_vel" type="text" value="50.0" id="derivative_input_vel"/>
+			<input type="submit" value="Submit" required>
+		</form>
+
+
+
+		<!--Entering coordinates of end effector-->
+		<h3>Enter coordinates</h3>
+
+		<form action="/coord" target="hiddenFrame">
+			X: <input name="x_input" type="text" value="0" id="x_input"/>
+			Y: <input name="input_y" type="text" value="300" id="input_y"/>
+
+			<br>
+
+			<input type="submit" value="Submit" required>
+		</form>
+
+
+
+
+
+		<!--Shows current coordinates of end effector-->
+		<h3>Current coordinates</h3>
+
+		<form action="/get" target="hiddenFrame">
+			X: <textarea id="show_x_coordinate" class="show_coordinates" rows="1"></textarea>
+			<br>
+			Y: <textarea id="show_y_coordinate" class="show_coordinates" rows="1"></textarea>
+			<br><br>
+			θ1: <textarea id="show_theta_1" class="show_coordinates" rows="1"></textarea>
+			<br>
+			θ2: <textarea id="show_theta_2" class="show_coordinates" rows="1"></textarea>
+		</form>
+
+
+
+		<!--Shows final angles of steppers-->
+		<h3>Final angles:</h3>
+
+		<form action="/get" target="hiddenFrame">
+			θ1_d: <textarea id="show_theta_1_desired" class="show_desired_angles" rows="1"></textarea>
+			<br>
+			θ2_d: <textarea id="show_theta_2_desired" class="show_desired_angles" rows="1"></textarea>
+		</form>
+
+
+
+		<!--Shows current delays of steppers-->
+		<h3>Current delays</h3>
+
+		<form action="/get" target="hiddenFrame">
+			Δt1: <textarea id="show_delta_t_1" class="show_delays" rows="1"></textarea>
+			<br>
+			Δt2: <textarea id="show_delta_t_2" class="show_delays" rows="1"></textarea>
+		</form>
+
+
+
+		<!--Traces out path of characteristic point-->
+		<br>
+		<canvas id="myCanvas" width="700" height="400" style="border:1px solid #ffffff; background-color: #ffffff;">
+		Your browser does not support the HTML5 canvas tag.</canvas>
+		<br>
+
+
+
+		<!--Button for clearing canvas-->
+		<br>
+		<button type="button" onclick="clear_canvas();">Clear path</button>
+		<br>
+
+
+
+
+
+		<iframe name="hiddenFrame" hidden="true"></iframe>
+
+	</body>
+
+	<script type="text/javascript" charset="utf-8" src="script.js"></script>
+</html>
