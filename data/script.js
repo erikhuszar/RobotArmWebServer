@@ -38,14 +38,16 @@ var y_points = [];
 
 document.addEventListener('DOMContentLoaded', function(event)
 {
+	/*
 	//const message_holder = document.getElementById('message');
 
-	/*const button_one = document.getElementById( 'button_one' );
+	const button_one = document.getElementById( 'button_one' );
 	const button_two = document.getElementById( 'button_two' );
 	const button_three = document.getElementById( 'button_three' );
 	const button_four = document.getElementById( 'button_four' );
 	const button_five = document.getElementById( 'button_five' );
-	const button_six = document.getElementById( 'button_six' );*/
+	const button_six = document.getElementById( 'button_six' );
+	*/
 
 
 	// Show coordinates:
@@ -64,15 +66,13 @@ document.addEventListener('DOMContentLoaded', function(event)
 	const show_delta_t_1_message_holder = document.getElementById('show_delta_t_1');
 	const show_delta_t_2_message_holder = document.getElementById('show_delta_t_2');
 
+	// Moving status:
+	var moving = 0;
 
 
 	// Enter coordinates:
 	const send_x_message_holder = document.getElementById('input_x');
 	const send_y_message_holder = document.getElementById('input_y');
-
-
-
-	
 
 
 
@@ -153,6 +153,7 @@ document.addEventListener('DOMContentLoaded', function(event)
 
 
 
+
 	function xhr_listener()
 	{
 		//console.log( this.responseText );
@@ -182,7 +183,7 @@ document.addEventListener('DOMContentLoaded', function(event)
 
 		let xhr = new XMLHttpRequest();
 
-		xhr.timeout = 1000; /* Milliseconds */
+		xhr.timeout = 1000; // Milliseconds
 
 		//xhr.addEventListener( 'loadstart', xhr_listener );
 		//xhr.addEventListener( 'load', xhr_listener );
@@ -227,7 +228,7 @@ document.addEventListener('DOMContentLoaded', function(event)
 						
 					}
 
-					// Shows delays
+					// Shows delays:
 					if (json_object['type'] == 2)
 					{
 						show_delta_t_1_message_holder.innerHTML = json_object['delta_t_1'];
@@ -239,6 +240,12 @@ document.addEventListener('DOMContentLoaded', function(event)
 					{
 						show_theta_1_desired_message_holder.innerHTML = json_object['theta_1_desired'];
 						show_theta_2_desired_message_holder.innerHTML = json_object['theta_2_desired'];
+					}
+
+					// Movement status:
+					if (json_object['type'] == 4)
+					{
+						moving = json_object['theta_1_desired'];
 					}
 				}
 			}
@@ -256,9 +263,10 @@ document.addEventListener('DOMContentLoaded', function(event)
 	}
 
 	/* clearInterval( get_7 ); get_7 = null; */
-	let get_7 = setInterval(() => {action('7');}, '1000');
-	let get_8 = setInterval(() => {action('8');}, '1000');
+	let get_7 = setInterval(() => {action('7');}, '2000');
+	//let get_8 = setInterval(() => {action('8');}, '2000');
 	let get_9 = setInterval(() => {action('9');}, '5000');
+	let get_11 = setInterval(() => {action('11');}, '5000');
 });
 
 

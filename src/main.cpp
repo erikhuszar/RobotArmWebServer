@@ -18,7 +18,7 @@
 
 
 #define WDT_TIMEOUT 60
-#define blink_interval 1000
+#define blink_interval 5000
 
 
 
@@ -57,6 +57,7 @@ void initSPIFFS()
 
   Serial.println("SPIFFS mounted successfully");
 }
+
 
 
 void loadJSONData(const char *filename, JSON_Data &data)
@@ -179,8 +180,8 @@ const uint8_t stepper_1_IN4 = 32;
 
 
 // Buttons which are pressed when the robotic arm reaches its maximum and minimum turning angles:
-#define stepper_1_min_angle_button 4 // green input wire
-#define stepper_2_min_angle_button 16  // white input wire
+#define stepper_1_min_angle_button 4     // green input wire
+#define stepper_2_min_angle_button 16    // white input wire
 
 // Encoder pins:
 #define encoder_1_green 13
@@ -243,6 +244,30 @@ unsigned long last_time = 0;
 
 volatile float setpoint_1 = 90.0f;
 volatile float setpoint_2 = 90.0f;
+
+// Variables stored for PID:
+float last_error_1 = 0.0f;
+unsigned long last_time_1 = 0;
+
+float last_error_2 = 0.0f;
+unsigned long last_time_2 = 0;
+
+
+
+float prop_1 = 0.0f;
+float integ_1 = 0.0f;
+float deriv_1 = 0.0f;
+
+float prop_2 = 0.0f;
+float integ_2 = 0.0f;
+float deriv_2 = 0.0f;
+
+
+float dt_1 = 0.0f;
+float dt_2 = 0.0f;
+
+float error_1 = 0.0f;
+float error_2 = 0.0f;
 //-------------------------------------------------------------------------------------------------
 
 
@@ -250,16 +275,21 @@ volatile float setpoint_2 = 90.0f;
 // Robot constants:
 //-------------------------------------------------------------------------------------------------
 // l is the length of each arm:
-const float l = 150.0f;
+//const float l = 150.0f;
+#define l 150.0
 
 // Amount of radians for each encoder pulse:
-const double beta_rad = PI / 400.0;
+//const double beta_rad = PI / 200.0;
+#define beta_rad (PI / 200.0)
+
 // Amount of degrees for each encoder pulse:
-const double beta_deg = 0.45;
+//const double beta_deg = 0.9;
+#define beta_deg 0.9
 
 // Number of stepper steps per degree:
-const double mu_deg = 2037.8864 / 360.0;
-//const double mu_deg = 1024.0 / 360.0;
+//const double alpha_deg = 2037.8864 / 360.0;
+#define alpha_deg (2037.8864 / 360.0)
+//const double alpha_deg = 1024.0 / 360.0;
 
 // Number of radians for each stepper step:
 //const double mu_rad = (2.0 * PI) / 2037.8864;
@@ -282,6 +312,14 @@ float theta_1_d = 90.0f, theta_2_d = 90.0f;
 
 // Delays for steppers:
 volatile unsigned int delta_t_1, delta_t_2;
+
+// Length of line segments for interpolation:
+#define delta_l 20.0f 
+
+// Variable that stores positions while moving.
+// After the values were sent, reset and empty the vectors:
+std::vector<float> x_real;
+std::vector<float> y_real;
 //-------------------------------------------------------------------------------------------------
 
 
@@ -325,6 +363,11 @@ volatile uint16_t task_2_at = 0;
 
 
 
+// Variable that stores whether the arm is moving:
+bool moving = false;
+
+
+
 
 
 
@@ -332,6 +375,7 @@ volatile uint16_t task_2_at = 0;
 
 // Encoder 1 functions:
 // Counter increases in trig direction and decreases in orar direction.
+/*
 void acti_green_1()
 {
   if (digitalRead(encoder_1_white) == LOW)
@@ -395,6 +439,45 @@ void acti_white_2()
   //Serial.print("Encoder 2: ");
   //Serial.println(encoder_2_counter);
 }
+*/
+
+
+
+// Alternative functions, which use only 2 interrupts, activated on green wire rising signal:
+void count_1()
+{
+  if (digitalRead(encoder_1_white) == LOW)
+  {
+    encoder_1_counter++;
+  }
+  else
+  {
+    encoder_1_counter--;
+  }
+
+  /*
+  Serial.print("enc_1: ");
+  Serial.println(encoder_1_counter);
+  */
+}
+
+void count_2()
+{
+  if (digitalRead(encoder_2_white) == LOW)
+  {
+    encoder_2_counter++;
+  }
+  else
+  {
+    encoder_2_counter--;
+  }
+
+  /*
+  Serial.print("enc_2: ");
+  Serial.println(encoder_2_counter);
+  */
+}
+
 
 
 
@@ -431,12 +514,12 @@ class Stepper
   {
     step_delay = delay;
   }
-*/
+  */
 
 
 
   // Function used for selecting the control pins and the 2 physical buttons for each stepper:
-  void Attach_Pins(int A, int B, int C, int D)
+  void attach_pins(int A, int B, int C, int D)
   {
     IN1 = A;
     IN2 = B;
@@ -447,7 +530,7 @@ class Stepper
 
 
   // Function used for writing the respective on/off values to the stepper coils:
-  void Write(int a, int b, int c, int d)
+  void write(int a, int b, int c, int d)
   {
     digitalWrite(IN1, a);
     digitalWrite(IN2, b);
@@ -535,11 +618,11 @@ class Stepper
 
           if (steps > 0)
           {
-            Write(steps_fast[i][0], steps_fast[i][1], steps_fast[i][2], steps_fast[i][3]);
+            write(steps_fast[i][0], steps_fast[i][1], steps_fast[i][2], steps_fast[i][3]);
           }
           else if (steps < 0)
           {
-            Write(steps_fast[i][3], steps_fast[i][2], steps_fast[i][1], steps_fast[i][0]);
+            write(steps_fast[i][3], steps_fast[i][2], steps_fast[i][1], steps_fast[i][0]);
           }
 
 
@@ -602,7 +685,7 @@ class Stepper
   const unsigned long interval_micros = 3000;
 
   // Stepper 1 calibration function:
-  void Calibrate_stepper_1()
+  void calibrate_stepper_1()
   {
     while (stop_buton == 1)
     {
@@ -628,7 +711,7 @@ class Stepper
       while (millis() - previous_time < 1000){}
 
       // Moves 30 steps to avoid getting stuck:
-      for (int i = 0; i < 30; i++)
+      for (int i = 0; i < /*30*/ 15; i++)
       {
         //trig(interval_micros, 16);
 
@@ -639,7 +722,7 @@ class Stepper
 
 
     // Moves in the trig direction:
-    while (encoder_1_counter < 250)
+    while (encoder_1_counter < /*250*/ 125)
     {
       //trig(interval_micros, 16);
 
@@ -652,7 +735,7 @@ class Stepper
 
 
 
-    encoder_1_counter = 200;
+    encoder_1_counter = /*200*/ 100;
 
 
 
@@ -671,13 +754,13 @@ class Stepper
 
     calibrating = false;
 
-    Write(0, 0, 0, 0);
+    write(0, 0, 0, 0);
   }
 
 
 
   // Stepper 2 calibration function:
-  void Calibrate_stepper_2()
+  void calibrate_stepper_2()
   {
     while (stop_buton == 1)
     {
@@ -701,7 +784,7 @@ class Stepper
       while (millis() - previous_time < 1000){}
 
       // Moves 30 steps to avoid getting stuck:
-      for (int i = 0; i < 30; i++)
+      for (int i = 0; i < /*30*/ 15; i++)
       {
         //trig(interval_micros, 16);
 
@@ -712,7 +795,7 @@ class Stepper
 
 
     // Moves in the trig direction:
-    while (encoder_2_counter < 270)
+    while (encoder_2_counter < /*270*/ 135)
     {
       //trig(interval_micros, 16);
 
@@ -725,7 +808,7 @@ class Stepper
 
 
 
-    encoder_2_counter = 200;
+    encoder_2_counter = /*200*/ 100;
 
 
 
@@ -733,7 +816,7 @@ class Stepper
 
     calibrating = false;
 
-    Write(0, 0, 0, 0);
+    write(0, 0, 0, 0);
   }
 };
 
@@ -750,7 +833,7 @@ Stepper stepper_2;
 // Functions:
 //-------------------------------------------------------------------------------------------------
 // Allocate space for at least 50 elements in each vector:
-void Allocate_space()
+void allocate_space()
 {
   x_values.reserve(50);
   y_values.reserve(50);
@@ -760,6 +843,9 @@ void Allocate_space()
 
   steps_1.reserve(50);
   steps_2.reserve(50);
+
+  x_real.reserve(50);
+  y_real.reserve(50);
 }
 
 
@@ -782,11 +868,16 @@ int check_sign(float a)
 // Function called to calculate current x and y values:
 void calculate_position()
 {
+  /*
   int enc_1 = encoder_1_counter;
   int enc_2 = encoder_2_counter;
-
+  
   x_p = l * (cos(beta_rad * enc_1) + sin(beta_rad * (enc_1 + enc_2)));
   y_p = l * (sin(beta_rad * enc_1) - cos(beta_rad * (enc_1 + enc_2)));
+  */
+
+  x_p = l * (cos(beta_rad * encoder_1_counter) + sin(beta_rad * (encoder_1_counter + encoder_2_counter)));
+  y_p = l * (sin(beta_rad * encoder_1_counter) - cos(beta_rad * (encoder_1_counter + encoder_2_counter)));
 }
 
 
@@ -1002,8 +1093,8 @@ void print_results()
 
     for (int i = 0; i < steps_1.size(); i++)
     {
-      float angle_1 = steps_1[i] / mu_deg;
-      float angle_2 = steps_2[i] / mu_deg;
+      float angle_1 = steps_1[i] / alpha_deg;
+      float angle_2 = steps_2[i] / alpha_deg;
 
       Serial.print("theta_1_");
       Serial.print(i);
@@ -1142,15 +1233,21 @@ void calculate_intermediate_steps()
   calculate_angles();
 
   // First steps from current point to first stored point:
-  int16_t first_step_1 = (theta_1_values[0] - theta_1_p) * mu_deg;
-  int16_t first_step_2 = (theta_2_values[0] - theta_2_p) * mu_deg;
+  int16_t first_step_1 = (theta_1_values[0] - theta_1_p) * alpha_deg;
+  int16_t first_step_2 = (theta_2_values[0] - theta_2_p) * alpha_deg;
 
   //Serial.println("calculated first steps");
 
   steps_1.push_back(first_step_1);
   steps_2.push_back(first_step_2);
 
-  //Serial.println("added them to array");
+
+
+  Serial.print("steps_1: ");
+  Serial.print(first_step_1);
+  Serial.print("    steps_2: ");
+  Serial.println(first_step_2);
+
 
 
 
@@ -1158,29 +1255,29 @@ void calculate_intermediate_steps()
   {
     //Serial.println("initialised variables");
 
-    int16_t step_1 = (theta_1_values[i + 1] - theta_1_values[i]) * mu_deg;
-    int16_t step_2 = (theta_2_values[i + 1] - theta_2_values[i]) * mu_deg;
-
-    //Serial.println("calculated values");
+    int16_t step_1 = (theta_1_values[i + 1] - theta_1_values[i]) * alpha_deg;
+    int16_t step_2 = (theta_2_values[i + 1] - theta_2_values[i]) * alpha_deg;
 
     steps_1.push_back(step_1);
     steps_2.push_back(step_2);
 
-    //Serial.println("stored values");
+
+
+    Serial.print("steps_1: ");
+    Serial.print(steps_1[i]);
+    Serial.print("    steps_2: ");
+    Serial.println(steps_2[i]);
   }
 
 
 
-  // Last steps from last point to final desired point point:
+  // Last steps from last point to final desired point (not needed):
+  /*
   if (theta_1_values.back() != theta_1_d)
   {
-    int16_t last_step_1 = (theta_1_d - theta_1_values.back()) * mu_deg;
-
-    //Serial.println("calculated laststep1");
+    int16_t last_step_1 = (theta_1_d - theta_1_values.back()) * alpha_deg;
 
     steps_1.push_back(last_step_1);
-
-    //Serial.println("added it to vector");
   }
   else
   {
@@ -1189,20 +1286,20 @@ void calculate_intermediate_steps()
 
   if (theta_2_values.back() != theta_2_d)
   {
-    int16_t last_step_2 = (theta_2_p - theta_2_values.back()) * mu_deg;
-
-    //Serial.println("calculated laststep2");
+    int16_t last_step_2 = (theta_2_p - theta_2_values.back()) * alpha_deg;
 
     steps_2.push_back(last_step_2);
-
-    //Serial.println("added it to vector");
   }
   else
   {
     steps_2.push_back(0);
   }
 
-  //Serial.println("end of function");
+  Serial.print("steps_1: ");
+  Serial.print(steps_1.back());
+  Serial.print("    steps_2: ");
+  Serial.println(steps_2.back());*/
+  Serial.println();
 
 
 
@@ -1215,6 +1312,12 @@ void calculate_intermediate_steps()
   //print_results();
 
 
+
+  vTaskResume(PID_1_task_handle);
+  vTaskResume(PID_2_task_handle);
+
+  last_time_1 = millis();
+  last_time_2 = millis();
 
   vTaskResume(stepper_1_task_handle);
   vTaskResume(stepper_2_task_handle);
@@ -1282,15 +1385,15 @@ void calculate_intermediate_angles()
 
 
 
-    /*
+    
     Serial.print("theta_1: ");
-    Serial.print(theta_1_values[i], 4);
+    Serial.print(theta_1_values[i]);
     Serial.print("    theta_2: ");
-    Serial.println(theta_2_values[i], 4);
-    */
+    Serial.println(theta_2_values[i]);
+    
   }
 
-  //Serial.println("exited for loop");
+  Serial.println();
 
 
 
@@ -1314,6 +1417,12 @@ void calculate_intermediate_angles()
 // Function for calculating intermediate points:
 void calculate_intermediate_points(float x, float y)
 {
+  // Clears previous values stored in vector:
+  x_values.clear();
+  y_values.clear();
+
+
+
   //Serial.println("entered calculate_intermediate_points");
 
   /*
@@ -1346,8 +1455,8 @@ void calculate_intermediate_points(float x, float y)
   float L = sqrt((x - x_p) * (x - x_p) + (y - y_p) * (y - y_p));
 
   
-  Serial.print("L: ");
-  Serial.println(L);
+  //Serial.print("L: ");
+  //Serial.println(L);
   
 
 
@@ -1412,7 +1521,7 @@ void calculate_intermediate_points(float x, float y)
 
 
 
-    if (((length_1 > L) || (length_2 > L)) && (L >= 30.0f))
+    if (((length_1 > L) || (length_2 > L)) && (L >= delta_l))
     {
       can_continue = true;
     }
@@ -1421,7 +1530,7 @@ void calculate_intermediate_points(float x, float y)
       can_continue = false;
     }
   }
-  else if (L >= 30.0f)
+  else if (L >= delta_l)
   {
     can_continue = true;
   }
@@ -1439,7 +1548,7 @@ void calculate_intermediate_points(float x, float y)
     //Serial.println("can_continue==true");
 
     // Number that divides line segment into 30mm pieces:
-    int n = int(L / 30.0f);
+    int n = int(L / delta_l);
 
     /*
     Serial.print("n: ");
@@ -1479,10 +1588,6 @@ void calculate_intermediate_points(float x, float y)
 
 
 
-    // Clears previous values stored in vector:
-    x_values.clear();
-    y_values.clear();
-
 
 
     // Calculate all x and y coordinates of intermediate points and store them in array:
@@ -1494,15 +1599,14 @@ void calculate_intermediate_points(float x, float y)
       float current_x = prev_x + x_increment;
       float current_y = prev_y + y_increment;
 
-      /*
+      
       Serial.print("x: ");
       Serial.print(current_x);
       Serial.print("    y: ");
       Serial.println(current_y);
-      */
+      
       
 
-      //Serial.println("calculated values");
 
 
 
@@ -1511,8 +1615,6 @@ void calculate_intermediate_points(float x, float y)
       {
         x_values.push_back(current_x);
         y_values.push_back(current_y);
-
-        //Serial.println("added values to vectors");
       }
 
 
@@ -1522,7 +1624,7 @@ void calculate_intermediate_points(float x, float y)
       prev_y = current_y;
     }
 
-    //Serial.println("exited for loop");
+    Serial.println();
 
 
 
@@ -1561,7 +1663,7 @@ void calculate_desired_angles(float x, float y)
 // Task functions:
 //-------------------------------------------------------------------------------------------------
 // Calibration task for stepper 1, only runs once:
-void Stepper_calibration(void * parameter)
+void stepper_calibration(void * parameter)
 {
   while (true)
   {
@@ -1593,17 +1695,24 @@ void Stepper_calibration(void * parameter)
 
 
 
+    moving = true;
+
     // Calibrates stepper 2:
-    stepper_2.Calibrate_stepper_2();
+    stepper_2.calibrate_stepper_2();
+
+    moving = false;
 
     //Serial.println("stepper 2 calibrated");
 
     vTaskDelay(500);
 
 
+    moving = true;
 
     // Calibrates stepper 1:
-    stepper_1.Calibrate_stepper_1();
+    stepper_1.calibrate_stepper_1();
+
+    moving = false;
 
 
 
@@ -1653,7 +1762,7 @@ const TickType_t task_delay = 50;
 
 
 // Task that monitors the state of button 1:
-void Button_1_Task(void * parameter)
+void button_1_task(void * parameter)
 {
   uint8_t last_state = 1, current_state, counter = 0;
 
@@ -1670,7 +1779,7 @@ void Button_1_Task(void * parameter)
     {
       counter++;
 
-      if (counter > 5)
+      if (counter > 3)
       {
         stepper_1_stop_button = current_state;
 
@@ -1693,14 +1802,14 @@ void Button_1_Task(void * parameter)
 
     last_state = current_state;
 
-    vTaskDelayUntil(&LastWakeTime, TickType_t(100));
+    vTaskDelayUntil(&LastWakeTime, TickType_t(200));
   }
 
   vTaskDelete(NULL);
 }
 
 // Task that monitors the state of button 2:
-void Button_2_Task(void * parameter)
+void button_2_task(void * parameter)
 {
   uint8_t last_state = 1, current_state, counter = 0;
 
@@ -1717,7 +1826,7 @@ void Button_2_Task(void * parameter)
     {
       counter++;
 
-      if (counter > 5)
+      if (counter > 3)
       {
         stepper_2_stop_button = current_state;
 
@@ -1740,7 +1849,7 @@ void Button_2_Task(void * parameter)
 
     last_state = current_state;
 
-    vTaskDelayUntil(&LastWakeTime, TickType_t(100));
+    vTaskDelayUntil(&LastWakeTime, TickType_t(200));
   }
 
   vTaskDelete(NULL);
@@ -1796,6 +1905,7 @@ void Calculate_current_position_and_angles(void * parameter)
 // PID task for stepper 1:
 void PID_1(void * parameter)
 {
+  /*
   // PID local variables:
   float last_error = 0.0f;
   unsigned long last_time = 0;
@@ -1806,6 +1916,7 @@ void PID_1(void * parameter)
   float prop = 0.0f;
   float integ = 0.0f;
   float deriv = 0.0f;
+  */
 
 
 
@@ -1843,7 +1954,9 @@ void PID_1(void * parameter)
     unsigned long current_time = millis();
 
     // Variable that measures elapsed time:
-    float dt = float(current_time - last_time) / 1000.0f;
+    //float dt = float(current_time - last_time) / 1000.0f;
+
+    dt_1 = float(current_time - last_time_1) / 1000.0f;
 
 
 
@@ -1851,7 +1964,9 @@ void PID_1(void * parameter)
     calculate_angles();
 
     // Error:
-    float error = setpoint_1 - theta_1_p;
+    //float error = setpoint_1 - theta_1_p;
+
+    error_1 = setpoint_1 - theta_1_p;
 
     //Serial.print("error_1: ");
     //Serial.println(error);
@@ -1859,11 +1974,12 @@ void PID_1(void * parameter)
 
 
     // Calculate only if error is different from 0 to avoid division by 0:
-    if (error != 0.0f)
+    if (/*error*/ error_1 != 0.0f)
     {
       //Proportional contribution:
-      //prop = kp_vel / error;
-      prop = kp_vel * error;
+      //prop = kp_vel * error;
+
+      prop_1 = kp_vel * error_1;
 
 
 
@@ -1873,20 +1989,24 @@ void PID_1(void * parameter)
 
 
       // Integral contribution:
-      //integ += (ki_vel / error) * dt;
-      integ += ki_vel * error * dt;
+      //integ += ki_vel * error * dt;
+
+      integ_1 += ki_vel * error_1 * dt_1;
 
       // Derivative contribution:
-      if (/*(last_error != error) &&*/ (dt != 0.0f))
+      if (/*(last_error != error) &&*/ (/*dt*/ dt_1 != 0.0f))
       {
-        //deriv = kd_vel / ((error - last_error) * dt);
-        deriv = kd_vel * (error - last_error) / dt;
+        //deriv = kd_vel * (error - last_error) / dt;
+
+        deriv_1 = kd_vel * (error_1 - last_error_1) / dt_1;
       }
       
 
       
       // Delay for stepper 1:
-      delta_t_1 = int(1000000.0f / abs(prop + integ) + abs(deriv));
+      //delta_t_1 = int(1000000.0f / abs(prop + integ) + abs(deriv));
+
+      delta_t_1 = int(1000000.0f / abs(prop_1 + integ_1) + abs(deriv_1));
 
       //Serial.print("delta_t_1: ");
       //Serial.println(delta_t_1);
@@ -1915,8 +2035,11 @@ void PID_1(void * parameter)
 
 
     // Store last calculated values for next calculation:
-    last_error = error;
-    last_time = current_time;
+    //last_error = error;
+    //last_time = current_time;
+
+    last_error_1 = error_1;
+    last_time_1 = current_time;
 
     //task_1_at_last = task_1_at;
 
@@ -2048,6 +2171,7 @@ void PID_1(void * parameter)
 // PID task for stepper 2:
 void PID_2(void * parameter)
 {
+  /*
   // PID local variables:
   float last_error = 0.0f;
   unsigned long last_time = 0;
@@ -2058,6 +2182,7 @@ void PID_2(void * parameter)
   float prop = 0.0f;
   float integ = 0.0f;
   float deriv = 0.0f;
+  */
 
 
 
@@ -2095,7 +2220,9 @@ void PID_2(void * parameter)
     unsigned long current_time = millis();
 
     // Variable that measures elapsed time:
-    float dt = float(current_time - last_time) / 1000.0f;
+    //float dt = float(current_time - last_time) / 1000.0f;
+
+    dt_2 = float(current_time - last_time_2) / 1000.0f;
 
 
 
@@ -2103,7 +2230,9 @@ void PID_2(void * parameter)
     calculate_angles();
 
     // Error:
-    float error = setpoint_2 - theta_2_p;
+    //float error = setpoint_2 - theta_2_p;
+
+    error_2 = setpoint_2 - theta_2_p;
 
     //Serial.print("error_2: ");
     //Serial.println(error);
@@ -2111,11 +2240,12 @@ void PID_2(void * parameter)
 
 
     // Calculate only if error is different from 0 to avoid division by 0:
-    if (error != 0.0f)
+    if (/*error*/ error_2 != 0.0f)
     {
       //Proportional contribution:
-      //prop = kp_vel / error;
-      prop = kp_vel * error;
+      //prop = kp_vel * error;
+
+      prop_2 = kp_vel * error_2;
 
 
 
@@ -2125,20 +2255,24 @@ void PID_2(void * parameter)
 
 
       // Integral contribution:
-      //integ += (ki_vel / error) * dt;
-      integ += ki_vel * error * dt;
+      //integ += ki_vel * error * dt;
+
+      integ_2 += ki_vel * error_2 * dt_2;
 
       // Derivative contribution:
-      if (/*(last_error != error) &&*/ (dt != 0.0f))
+      if (/*(last_error != error) &&*/ (/*dt*/ dt_2 != 0.0f))
       {
-        //deriv = kd_vel / ((error - last_error) * dt);
-        deriv = kd_vel * (error - last_error) / dt;
+        //deriv = kd_vel * (error - last_error) / dt;
+
+        deriv_2 = kd_vel * (error_2 - last_error_2) / dt_2;
       }
       
       
       
       // Delay for stepper 2:
-      delta_t_2 = int(1000000.0f / abs(prop + integ) + abs(deriv));
+      //delta_t_2 = int(1000000.0f / abs(prop + integ) + abs(deriv));
+
+      delta_t_2 = int(1000000.0f / abs(prop_2 + integ_2) + abs(deriv_2));
 
       //Serial.print("delta_t_2: ");
       //Serial.println(delta_t_2);
@@ -2167,8 +2301,11 @@ void PID_2(void * parameter)
 
 
     // Store last calculated values for next calculation:
-    last_error = error;
-    last_time = current_time;
+    //last_error = error;
+    //last_time = current_time;
+
+    last_error_2 = error_2;
+    last_time_2 = current_time;
 
     //task_2_at_last = task_2_at;
 
@@ -2203,7 +2340,7 @@ void PID_2(void * parameter)
 
 
 // Task responsible for moving stepper 1:
-void Stepper_1_Task(void * parameter)
+void stepper_1_task(void * parameter)
 {
   while (true)
   {
@@ -2247,7 +2384,11 @@ void Stepper_1_Task(void * parameter)
     vTaskDelay(100);
     */
 
+    moving = false;
+    
     vTaskSuspend(stepper_1_task_handle);
+
+    moving = true;
 
 
 
@@ -2283,7 +2424,7 @@ void Stepper_1_Task(void * parameter)
 
 
       // Move stepper 1:
-      if ((stepper_1_stop_button == 1) && (encoder_1_counter < 420) && (encoder_1_counter > -20))
+      if ((stepper_1_stop_button == 1) && (encoder_1_counter < /*420*/ 210) && (encoder_1_counter > /*-20*/ -10))
       {
         /*
         while (move_to_next_point == false)
@@ -2307,7 +2448,7 @@ void Stepper_1_Task(void * parameter)
         // If Task 1 is ahead of Task 2, wait:
         while (task_1_at > task_2_at)
         {
-          vTaskDelay(10);
+          vTaskDelay(50);
         }
 
         // If Task 1 is behind or at the same step as Task 2, move:
@@ -2315,6 +2456,12 @@ void Stepper_1_Task(void * parameter)
         {
           // Stepping:
           stepper_1.step(steps_1[i]);
+
+
+
+          // At each step in the list, calculate actual positions and store them in a variable:
+          x_real.push_back(l * (cos(beta_rad * encoder_1_counter) + sin(beta_rad * (encoder_1_counter + encoder_2_counter))));
+          y_real.push_back(l * (sin(beta_rad * encoder_1_counter) - cos(beta_rad * (encoder_1_counter + encoder_2_counter))));
         }
 
 
@@ -2339,7 +2486,10 @@ void Stepper_1_Task(void * parameter)
         */
       }
 
-      vTaskDelay(1);
+      //vTaskDelay(1);
+      taskYIELD();
+
+
 
       /*
       // If both steppers are finished, move to next point:
@@ -2360,9 +2510,29 @@ void Stepper_1_Task(void * parameter)
 
     // Reset vector:
     steps_1.clear();
+    theta_1_values.clear();
 
-    // Deenergises coils:
-    stepper_1.Write(0, 0, 0, 0);
+    // Deenergise coils:
+    stepper_1.write(0, 0, 0, 0);
+
+
+
+    // Make the vectors more compact:
+    x_real.shrink_to_fit();
+    y_real.shrink_to_fit();
+
+
+
+    // Stop PID task:
+    vTaskSuspend(PID_1_task_handle);
+
+    error_1 = 0.0f;
+    prop_1 = 0.0f;
+    integ_1 = 0.0f;
+    deriv_1 = 0.0f;
+    dt_1 = 0.0f;
+    last_error_1 = 0.0f;
+    //last_time_1 = 0;
 
 
 
@@ -2406,11 +2576,15 @@ void Stepper_1_Task(void * parameter)
 
 
 // Task responsible for moving stepper 2:
-void Stepper_2_Task(void * parameter)
+void stepper_2_task(void * parameter)
 {
   while (true)
   {
+    moving = false;
+
     vTaskSuspend(stepper_2_task_handle);
+
+    moving = true;
 
 
 
@@ -2425,7 +2599,7 @@ void Stepper_2_Task(void * parameter)
 
 
 
-      if ((stepper_2_stop_button == 1) && (encoder_2_counter < 420) && (encoder_2_counter > -20))
+      if ((stepper_2_stop_button == 1) && (encoder_2_counter < /*420*/ 210) && (encoder_2_counter > /*-20*/ -10))
       {
         /*
         while (move_to_next_point == false)
@@ -2443,13 +2617,13 @@ void Stepper_2_Task(void * parameter)
         //stepper_2_done = false;
 
 
-        
+
         task_2_at = i;
 
         // If Task 2 is ahead of Task 1, wait:
         while (task_2_at > task_1_at)
         {
-          vTaskDelay(10);
+          vTaskDelay(50);
         }
 
         // If Task 2 is behind or at the same step as Task 1, move:
@@ -2481,7 +2655,8 @@ void Stepper_2_Task(void * parameter)
         */
       }
 
-      vTaskDelay(1);
+      //vTaskDelay(1);
+      taskYIELD();
 
       /*
       // If both steppers are finished, move to next point:
@@ -2502,8 +2677,22 @@ void Stepper_2_Task(void * parameter)
 
     // Reset vector:
     steps_2.clear();
+    theta_2_values.clear();
 
-    stepper_2.Write(0, 0, 0, 0);
+    stepper_2.write(0, 0, 0, 0);
+
+
+
+    // Stop PID task:
+    vTaskSuspend(PID_2_task_handle);
+
+    error_2 = 0.0f;
+    prop_2 = 0.0f;
+    integ_2 = 0.0f;
+    deriv_2 = 0.0f;
+    dt_2 = 0.0f;
+    last_error_2 = 0.0f;
+    //last_time_2 = 0;
   }
  
   vTaskDelete(stepper_2_task_handle);
@@ -2713,39 +2902,84 @@ void setup()
 
   // Show coordinates and angles:
   server.on
-  ( "/7", HTTP_GET, [] ( AsyncWebServerRequest *request )
+  ("/7", HTTP_GET, [](AsyncWebServerRequest *request)
     {
       // Update coordinates and angles:
       calculate_position();
       calculate_angles();
 
       // Send values:
-      request->send(200, "text/plain", "{\"type\":1,\"x\":" + String(x_p) + ",\"y\":" + String(y_p) + ",\"theta_1\":" + String(theta_1_p) + ",\"theta_2\":" + String(theta_2_p) + "}");
+      request -> send(200, "text/plain", "{\"type\":1,\"x\":" + String(x_p) + ",\"y\":" + String(y_p) + ",\"theta_1\":" + String(theta_1_p) + ",\"theta_2\":" + String(theta_2_p) + "}");
 
       //{"type":1,"x":111,"y":222,"theta_1":333,"theta_2":444}
     }
   );
 
   // Show delays:
+  /*
   server.on
-  ( "/8", HTTP_GET, [] ( AsyncWebServerRequest *request )
+  ("/8", HTTP_GET, [](AsyncWebServerRequest *request)
     {
-      request->send(200, "text/plain", "{\"type\":2,\"delta_t_1\":" + String(delta_t_1) + ",\"delta_t_2\":" + String(delta_t_2) + "}");
+      request -> send(200, "text/plain", "{\"type\":2,\"delta_t_1\":" + String(delta_t_1) + ",\"delta_t_2\":" + String(delta_t_2) + "}");
 
       //{"type":2,"delta_t_1":111,"delta_t_2"}
     }
-  );  
+  );
+  */ 
   
   // Show desired angles:
   server.on
-  ( "/9", HTTP_GET, [] ( AsyncWebServerRequest *request )
+  ("/9", HTTP_GET, [](AsyncWebServerRequest *request)
     {
-      request->send(200, "text/plain", "{\"type\":3,\"theta_1_desired\":" + String(theta_1_d) + ",\"theta_2_desired\":" + String(theta_2_d) + "}");
+      request -> send(200, "text/plain", "{\"type\":3,\"theta_1_desired\":" + String(theta_1_d) + ",\"theta_2_desired\":" + String(theta_2_d) + "}");
 
       //{"type":3,"theta_1_desired":111,"theta_2_desired":222}
     }
   );
 
+  // Send stored real coordinates:
+  server.on
+  ("/10", HTTP_GET, [](AsyncWebServerRequest *request)
+    {
+      // Temporary strings to store the values of the vectors in string format in order to be sent via the 
+      String x_numbers, y_numbers;
+
+
+
+      // Create strings from the vectors:
+      for (int i = 0; i < x_real.size() - 1; i++)
+      {
+        x_numbers += String(x_real[i]) + ',';
+
+        y_numbers += String(y_real[i]) + ',';
+      }
+
+      // Add last elements without the comma:
+      x_numbers += String(x_real.back());
+      y_numbers += String(y_real.back());
+
+
+
+      // Sending the values:
+      request -> send(200, x_numbers + ';' + y_numbers);
+
+
+
+      // Resetting the vectors for the next cycle:
+      x_real.clear();
+      y_real.clear();
+    }
+  );
+
+  // Send whether the arm is moving or not:
+  server.on
+  ("/11", HTTP_GET, [](AsyncWebServerRequest *request)
+    {
+      request -> send(200, "text/plain", "{\"type\":4,\"moving\":" + String(moving));
+
+      //{"type":4,"moving":0}
+    }
+  );
 
 
 
@@ -2951,7 +3185,7 @@ void setup()
 
 
   // Allocate space for vectors:
-  Allocate_space();
+  allocate_space();
 
 
 
@@ -2990,18 +3224,26 @@ void setup()
 
 
   // Encoder interrupts:
+  /*
   attachInterrupt(digitalPinToInterrupt(encoder_1_green), acti_green_1, RISING);
   attachInterrupt(digitalPinToInterrupt(encoder_1_white), acti_white_1, RISING);
 
   attachInterrupt(digitalPinToInterrupt(encoder_2_green), acti_green_2, RISING);
   attachInterrupt(digitalPinToInterrupt(encoder_2_white), acti_white_2, RISING);
+  */
+
+
+
+  attachInterrupt(digitalPinToInterrupt(encoder_1_green), count_1, RISING);
+  attachInterrupt(digitalPinToInterrupt(encoder_2_green), count_2, RISING);
+  
 
   //Serial.println(xPortGetCoreID()); // setup runs on core 1
 
 
   // Calling the functions which associate stepper coils with output pins:
-  stepper_1.Attach_Pins(stepper_1_IN1, stepper_1_IN2, stepper_1_IN3, stepper_1_IN4);
-  stepper_2.Attach_Pins(stepper_2_IN1, stepper_2_IN2, stepper_2_IN3, stepper_2_IN4);
+  stepper_1.attach_pins(stepper_1_IN1, stepper_1_IN2, stepper_1_IN3, stepper_1_IN4);
+  stepper_2.attach_pins(stepper_2_IN1, stepper_2_IN2, stepper_2_IN3, stepper_2_IN4);
 
 
 
@@ -3009,15 +3251,15 @@ void setup()
 
   // Tasks:
   // Stepper calibration task:
-  xTaskCreatePinnedToCore(Stepper_calibration, "Stepper 1 calibration", 1000, NULL, 2, &stepper_calibration_task_handle, 0);
+  xTaskCreatePinnedToCore(stepper_calibration, "Stepper 1 calibration", 1000, NULL, 2, &stepper_calibration_task_handle, 0);
 
   // Tasks responsible for moving the arm:
-  xTaskCreatePinnedToCore(Stepper_1_Task, "Stepper 1 Task", 10000, NULL, 3, &stepper_1_task_handle, 0);
-  xTaskCreatePinnedToCore(Stepper_2_Task, "Stepper 2 Task", 10000, NULL, 3, &stepper_2_task_handle, 0);
+  xTaskCreatePinnedToCore(stepper_1_task, "Stepper 1 Task", 10000, NULL, 3, &stepper_1_task_handle, 0);
+  xTaskCreatePinnedToCore(stepper_2_task, "Stepper 2 Task", 10000, NULL, 3, &stepper_2_task_handle, 0);
 
   // Tasks that monitor button state:
-  xTaskCreatePinnedToCore(Button_1_Task, "Button 1 Task", 1000, NULL, 4, NULL, 0);
-  xTaskCreatePinnedToCore(Button_2_Task, "Button 2 Task", 1000, NULL, 4, NULL, 0);
+  xTaskCreatePinnedToCore(button_1_task, "Button 1 Task", 1000, NULL, 4, NULL, 0);
+  xTaskCreatePinnedToCore(button_2_task, "Button 2 Task", 1000, NULL, 4, NULL, 0);
 
   // Task that calculates current position and errors in position:
   //xTaskCreatePinnedToCore(Calculate_current_position_and_angles, "Calculate coordinates", 5000, NULL, 6, &calculate_current_position_and_angles_task_handle, 0);

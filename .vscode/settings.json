@@ -1,3 +1,6 @@
 {
-    "cmake.sourceDirectory": "${workspaceFolder}/lib/ArduinoJson/src"
+    "cmake.sourceDirectory": "${workspaceFolder}/lib/ArduinoJson/src",
+    "files.associations": {
+        "sstream": "cpp"
+    }
 }
