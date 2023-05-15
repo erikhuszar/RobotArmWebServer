@@ -245,7 +245,7 @@ document.addEventListener('DOMContentLoaded', function(event)
 					// Movement status:
 					if (json_object['type'] == 4)
 					{
-						moving = json_object['theta_1_desired'];
+						moving = json_object['moving'];
 					}
 				}
 			}
