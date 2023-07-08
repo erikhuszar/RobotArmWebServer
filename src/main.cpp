@@ -174,9 +174,6 @@ const uint8_t stepper_1_IN4 = 32;
 
 
 
-//AccelStepper Stepper1(AccelStepper::FULL4WIRE, stepper_1_IN1, stepper_1_IN3, stepper_1_IN2, stepper_1_IN4);
-//AccelStepper Stepper2(AccelStepper::FULL4WIRE, stepper_2_IN1, stepper_2_IN3, stepper_2_IN2, stepper_2_IN4);
-
 
 
 // Buttons which are pressed when the robotic arm reaches its maximum and minimum turning angles:
@@ -2749,21 +2746,21 @@ void setup()
   server.on
   ("/style.css", HTTP_GET, [] (AsyncWebServerRequest *request)
     {
-      request->send(SPIFFS, "/style.css", "text/css");
+      request -> send(SPIFFS, "/style.css", "text/css");
     }
   );
 
   server.on
   ("/script.js", HTTP_GET, [] (AsyncWebServerRequest *request)
     {
-      request->send(SPIFFS, "/script.js", "text/javascript");
+      request -> send(SPIFFS, "/script.js", "text/javascript");
     }
   );
 
   server.on
   ("/favicon.png", HTTP_GET, [] (AsyncWebServerRequest *request)
     {
-      request->send(SPIFFS, "/favicon.png", "image/png");
+      request -> send(SPIFFS, "/favicon.png", "image/png");
     }
   );
 
